@@ -16,8 +16,19 @@ and Gnu getopt() example <http://www.gnu.org/software/libc/manual/html_node/Exam
 #include <fcntl.h>
 #include <sys/mman.h>
 
-#define BCM2708_PERI_BASE        0x20000000
-#define GPIO_BASE                (BCM2708_PERI_BASE + 0x200000) /* GPIO controller */
+//#define RPIZERO
+#define RPITWO
+
+/* Address Definitions */
+#if defined(RPIZERO)
+  #define PI_PERIPHERAL_BASE        0x20000000
+#elif defined(RPITWO)
+  #define PI_PERIPHERAL_BASE        0x3F000000 // 7E seems not right
+#else
+ #error "Platform is not defined"
+#endif
+
+#define GPIO_BASE                (PI_PERIPHERAL_BASE + 0x200000) /* GPIO controller */
 #define PAGE_SIZE (4*1024)
 #define BLOCK_SIZE (4*1024)
 
