@@ -35,13 +35,13 @@
 #define RECEIVED_DATA_SIZE        1024
 #define RECEIVED_DATA_SIZE_BYTES  4 * RECEIVED_DATA_SIZE
 
-#define DO_TX
+//#define DO_TX
 #define DO_RX
 
 int main(int argc, char **argv)
 {
   int i, j = 0;
-  size_t nbytes, transfer_length;
+  size_t nbytes, transfer_length = 0;
 
   int wav_samples, bytes_per_sample;
   int32_t temp_wav;
@@ -147,7 +147,7 @@ int main(int argc, char **argv)
 
 
 #ifdef DO_RX
-
+  unsigned byte_count = 0;
   FILE *rx_fp = fopen("rx.dat", "w+");
   if(rx_fp == NULL)
   {
@@ -159,31 +159,39 @@ int main(int argc, char **argv)
   usleep(5);
   ioctl(i2s_fd, I2S_SET_RXON, 1);
 
+  char *rbuff_ptr = (char *) received_data;
+
   /* Loop for a bit */
-  for(i = 0; i < 50000; i++)
+  while(i < 50000)
   {
     // samples_available = ioctl(i2s_fd, I2S_RX_BUFF_ITEMS);
     if(ioctl(i2s_fd, I2S_RX_BUFF_ITEMS) > 0)
     {
       /* If there are more samples than the buffer can hold, fill it, otherwise copy however many samples are available */
-      transfer_length = read(i2s_fd, &received_data, RECEIVED_DATA_SIZE_BYTES);
-      fwrite(&received_data, nbytes, transfer_length, rx_fp);
+//      transfer_length += read(i2s_fd, rbuff_ptr + transfer_length, RECEIVED_DATA_SIZE_BYTES);
+      transfer_length = read(i2s_fd, rbuff_ptr, RECEIVED_DATA_SIZE_BYTES);
+      byte_count += transfer_length;
+      fwrite(received_data, 1, transfer_length, rx_fp);
+      i = 0;		// reset the wait time
+    } else {
+      i++;
+      usleep(1);
     }
-    usleep(1);
   }
+  printf("reading %d bytes\n", byte_count);
 
   ioctl(i2s_fd, I2S_SET_RXON, 0);
   printf("Disabling RX...\n");
 
   // Clean up remaining samples, if any
   samples_available = ioctl(i2s_fd, I2S_RX_BUFF_ITEMS);
-  printf("Reading remaining samples: %d.\n", samples_available);
 
   if(samples_available > 0)
   {
     /* If there are more samples than the buffer can hold, fill it, otherwise copy however many samples are available */
-    transfer_length = read(i2s_fd, &received_data, RECEIVED_DATA_SIZE_BYTES);
-    fwrite(&received_data, nbytes, transfer_length, rx_fp);
+    transfer_length = read(i2s_fd, received_data, RECEIVED_DATA_SIZE_BYTES);
+    fwrite(received_data, 1, transfer_length, rx_fp);
+    printf("Reading remaining samples: %d. (%d bytes to file)\n", samples_available, transfer_length);
   }
 
   fclose(rx_fp);
