@@ -37,14 +37,14 @@
 #define DEVICE_NAME "i2s_driver"
 
 /* Switch these depending on which version of the RaspPi you're using */
-#define RPIZERO   // For original Raspberry Pi and Zero
-// #define RPITWO    // For Raspberry Pi 2 or 3
+//#define RPIZERO   // For original Raspberry Pi and Zero
+#define RPITWO    // For Raspberry Pi 2 or 3
 
 /* Address Definitions */
 #ifdef RPIZERO
   #define PI_PERIPHERAL_BASE        0x20000000
-#elif RPITWO
-  #define PI_PERIPHERAL_BASE        0x3F000000
+#elif defined(RPITWO)
+  #define PI_PERIPHERAL_BASE        0x3F000000	// 7E seems not right
 #endif
 
 #define I2S_OFFSET                0x00203000
@@ -68,9 +68,9 @@ struct i2s_inst {
 /* FIFO for holding I2S data in the kernel space */
 struct i2s_buffer {
   int32_t *buffer;
-  int head;
-  int tail;
-  int size;
+  unsigned int head;
+  unsigned int tail;
+  unsigned int size;
 };
 
 /************************END STRUCT DECLARATIONS ******************************/
@@ -231,7 +231,7 @@ static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 static void buffer_init(struct i2s_buffer *b, int32_t *data, int size);
 static int32_t buffer_read(struct i2s_buffer *b);
 static int buffer_write(struct i2s_buffer *b, int32_t data);
-static int buffer_remaining(struct i2s_buffer *b);
+static unsigned int buffer_remaining(struct i2s_buffer *b);
 static inline int buffer_items(struct i2s_buffer *b);
 static inline void buffer_clear(struct i2s_buffer *b);
 

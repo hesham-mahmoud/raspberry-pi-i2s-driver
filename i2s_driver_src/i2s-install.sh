@@ -5,7 +5,7 @@ gpio_alt -p 20 -f 0
 gpio_alt -p 21 -f 0
 # Build and install I2S kernel module
 if [[ -e i2s_driver.c ]] ; then
-	sudo make
+	make
 else
 	echo "No source found. Continuing..."
 fi

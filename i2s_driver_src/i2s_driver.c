@@ -16,13 +16,16 @@
 #include <asm/barrier.h>    // For wmb(), rmb()
 #include <linux/slab.h>     // For kmalloc
 
+#include <linux/uaccess.h>
+
 #include <linux/sched.h>    // For interrupts
 #include <linux/interrupt.h>
 
 #include "i2s_driver.h"
 
 #define BYTES_PER_SAMPLE        4    // Everything is stored in 32 bits
-#define SAMPLE_BUFF_LEN         16000
+#define SAMPLE_BUFF_LEN         0x1000
+#define SAMPLE_BUFF_LEN_MASK    (SAMPLE_BUFF_LEN - 1)
 #define SAMPLE_BUFF_LEN_BYTES   BYTES_PER_SAMPLE * SAMPLE_BUFF_LEN
 
 /* Interrupt number associated with the I2S interface */
@@ -108,8 +111,16 @@ static int i2s_init_default(void)
    * First bit of channel 1 is received on the 2nd clock cycle,
    * First bit of channel 2 is received on the 34rd clock cycle */
   printk(KERN_INFO "Setting channel width...");
-  i2s->RXC_A = I2S_RXC_A_CH1EN | I2S_RXC_A_CH1POS(1) | I2S_RXC_A_CH1WEX | I2S_RXC_A_CH1WID(0) | I2S_RXC_A_CH2EN | I2S_RXC_A_CH2POS(33) | I2S_RXC_A_CH2WEX | I2S_RXC_A_CH2WID(0);
-  i2s->TXC_A = I2S_TXC_A_CH1EN | I2S_TXC_A_CH1POS(1) | I2S_TXC_A_CH1WEX | I2S_TXC_A_CH1WID(0) | I2S_TXC_A_CH2EN | I2S_TXC_A_CH2POS(33) | I2S_TXC_A_CH2WEX | I2S_TXC_A_CH2WID(0);
+#if 1
+  // here we try 16/16
+  i2s->RXC_A = I2S_RXC_A_CH1EN | I2S_RXC_A_CH1POS(1) | I2S_RXC_A_CH1WID(8) | I2S_RXC_A_CH2EN | I2S_RXC_A_CH2POS(17) | I2S_RXC_A_CH2WID(8);
+//  i2s->MODE_A |= I2S_MODE_A_FLEN(31);	// does it make a difference?
+//  i2s->MODE_A |= I2S_MODE_A_FSLEN(15);	// does it make a difference?
+#else
+  // here we try 24/24
+  i2s->RXC_A = I2S_RXC_A_CH1EN | I2S_RXC_A_CH1POS(0) | I2S_RXC_A_CH1WEX | I2S_RXC_A_CH1WID(0) | I2S_RXC_A_CH2EN | I2S_RXC_A_CH2POS(30) | I2S_RXC_A_CH2WEX | I2S_RXC_A_CH2WID(0);
+#endif
+  i2s->TXC_A = I2S_TXC_A_CH1EN | I2S_TXC_A_CH1POS(0) | I2S_TXC_A_CH1WEX | I2S_TXC_A_CH1WID(0) | I2S_TXC_A_CH2EN | I2S_TXC_A_CH2POS(32) | I2S_TXC_A_CH2WEX | I2S_TXC_A_CH2WID(0);
 
   // Disable Standby
   printk(KERN_INFO "Disabling standby...");
@@ -120,8 +131,8 @@ static int i2s_init_default(void)
   i2s->CS_A |= I2S_CS_A_TXCLR | I2S_CS_A_RXCLR;
 
   /* Interrupt driven mode */
-  /* Interrupt when TX fifo is less than full and RX fifo is full */
-  i2s->CS_A |= I2S_CS_A_TXTHR(0x1) | I2S_CS_A_RXTHR(0x3);
+  /* Interrupt when TX fifo is less than full and RX fifo less than full */
+  i2s->CS_A |= I2S_CS_A_TXTHR(0x1) | I2S_CS_A_RXTHR(0x2);
   // Enable TXW and RXR interrupts
   i2s->INTEN_A = I2S_INTEN_A_TXW | I2S_INTEN_A_RXR;
 
@@ -184,6 +195,15 @@ static void inline i2s_disable_rx(void)
 {  wmb();
   i2s->CS_A &= ~I2S_CS_A_RXON;
   // printk(KERN_INFO "RX disabled.");
+  // flush the RX FIFO
+  /* Read from the FIFO until it is empty */
+  while (i2s->CS_A & I2S_CS_A_RXD_MASK)
+  {
+     if(buffer_remaining(&rx_buf) != 0)
+     {
+       buffer_write(&rx_buf, i2s->FIFO_A);
+     }
+  }
 }
 
 static void inline i2s_clear_tx_fifo(void)
@@ -243,16 +263,13 @@ static void i2s_reset(void)
 
    if(b->tail != b->head)
    {
-     temp = b->buffer[b->tail];          // Read sample from the buffer
+     temp = b->buffer[b->tail & SAMPLE_BUFF_LEN_MASK];          // Read sample from the buffer
+     smp_wmb();
      b->tail++;                         // Increment tail
-     if(b->tail == b->size + 1)        // Wrap around condition
-     {
-       b->tail = 0;
-     }
    }
    else
    {
-     return 0;
+     return -1;
    }
    return temp;
  }
@@ -260,47 +277,29 @@ static void i2s_reset(void)
  /* Write a sample to a buffer */
  static int buffer_write(struct i2s_buffer *b, int32_t data)
  {
-   if( (b->head + 1 == b->tail) || ((b->head + 1 == b->size + 1) && (b->tail == 0)) )
+   if(b->head + 1 == b->tail)
    {
      return -1;   //No room
    }
    else
    {
-     b->buffer[b->head] = data;
+     b->buffer[b->head & SAMPLE_BUFF_LEN_MASK] = data;
+     smp_wmb();
      b->head++;
-     if(b->head == b->size + 1)        // Wraparound condition
-     {
-       b->head = 0;
-     }
    }
    return 0;
  }
 
  /* Return the space left in the buffer */
- static int buffer_remaining(struct i2s_buffer *b)
+ static unsigned int buffer_remaining(struct i2s_buffer *b)
  {
-   if( (b->head == b->tail) )
-   {
-     /* Buffer is empty */
-     return b->size;
-   }
-   else if(b->head > b->tail)
-   {
-     return ((b->size - b->head) + b->tail);
-   }
-   else if(b->head < b->tail)
-   {
-     return (b->tail - b->head - 1);
-   }
-
-   /* Something is very wrong */
-   return -1;
+   return b->size - (b->head - b->tail);
  }
 
  /* Return number of items currently in the buffer */
  static inline int buffer_items(struct i2s_buffer *b)
  {
-   return (b->size - buffer_remaining(b));
+   return b->head - b->tail;
  }
 
  /* Erase contents of buffer */
@@ -323,6 +322,8 @@ static irq_handler_t i2s_interrupt_handler(int irq, void *dev_id, struct pt_regs
    int32_t data, temp;
 
    local_irq_save(irq_flags);
+
+   // printk(KERN_ALERT "I2S interrupt fired!...\n");
 
    /* Check TXW to see if samples can be written/buffer empty. */
    if((i2s->INTSTC_A & I2S_INTSTC_A_TXW))
@@ -364,18 +365,12 @@ static irq_handler_t i2s_interrupt_handler(int irq, void *dev_id, struct pt_regs
    if((i2s->INTSTC_A & I2S_INTSTC_A_RXR))
    {
      /* Read from the FIFO until it is empty */
-     for(i = 0; i < 64; i++)
+     while (i2s->CS_A & I2S_CS_A_RXD_MASK)
      {
-       if(!(i2s->CS_A & I2S_CS_A_RXD_MASK))
-       {
-         /* No more data to read */
-        //  printk(KERN_INFO "No RX data to read.");
-         break;
-       }
-       else if(buffer_remaining(&rx_buf) == 0)
+       if(buffer_remaining(&rx_buf) == 0)
        {
          rx_error_count++;
-        //  printk(KERN_INFO "RX buffer overflow.");
+         // printk(KERN_INFO "RX buffer overflow.");
          if(rx_error_count > 1000000)
          {
            /* Shut it down to keep from hanging forever */
