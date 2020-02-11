@@ -120,7 +120,11 @@ static int i2s_init_default(void)
   // here we try 24/24
   i2s->RXC_A = I2S_RXC_A_CH1EN | I2S_RXC_A_CH1POS(0) | I2S_RXC_A_CH1WEX | I2S_RXC_A_CH1WID(0) | I2S_RXC_A_CH2EN | I2S_RXC_A_CH2POS(30) | I2S_RXC_A_CH2WEX | I2S_RXC_A_CH2WID(0);
 #endif
+#if 1
+  i2s->TXC_A = I2S_TXC_A_CH1EN | I2S_TXC_A_CH1POS(0) | I2S_TXC_A_CH1WID(8) | I2S_TXC_A_CH2EN | I2S_TXC_A_CH2POS(16) | I2S_TXC_A_CH2WID(8);
+#else
   i2s->TXC_A = I2S_TXC_A_CH1EN | I2S_TXC_A_CH1POS(0) | I2S_TXC_A_CH1WEX | I2S_TXC_A_CH1WID(0) | I2S_TXC_A_CH2EN | I2S_TXC_A_CH2POS(32) | I2S_TXC_A_CH2WEX | I2S_TXC_A_CH2WID(0);
+#endif
 
   // Disable Standby
   printk(KERN_INFO "Disabling standby...");
@@ -462,7 +466,11 @@ static ssize_t device_write(struct file *file, const char *buffer, size_t length
     // New way that matches the read function more closely
     ret = copy_from_user(&tx_temp, buffer + index, BYTES_PER_SAMPLE);
 
-    if(buffer_write(&tx_buf, tx_temp) < 0)
+    if(i2s->CS_A & I2S_CS_A_TXD_MASK)
+    {
+      i2s->FIFO_A = tx_temp;
+    }
+    else if(buffer_write(&tx_buf, tx_temp) < 0)
     {
       printk(KERN_INFO "TX buffer overflow.");
     }
@@ -471,8 +479,7 @@ static ssize_t device_write(struct file *file, const char *buffer, size_t length
   }
 
   // Return the number of bytes transferred
-  return BYTES_PER_SAMPLE*index;
-
+  return index;
 }
 
 /* Called when a process attemps to open the device file */

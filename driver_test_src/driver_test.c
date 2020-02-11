@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -35,7 +36,7 @@
 #define RECEIVED_DATA_SIZE        1024
 #define RECEIVED_DATA_SIZE_BYTES  4 * RECEIVED_DATA_SIZE
 
-//#define DO_TX
+#define DO_TX
 #define DO_RX
 
 int main(int argc, char **argv)
@@ -48,6 +49,7 @@ int main(int argc, char **argv)
   int32_t *wav_data;
   unsigned int wav_data_offset = 0;
   int samples_available;
+  int tx_test = 0;
 
   int32_t received_data[RECEIVED_DATA_SIZE];
   int buffer_space, buffer_size;
@@ -66,16 +68,32 @@ int main(int argc, char **argv)
 
   nbytes = sizeof(int32_t);
 
+printf("argc = %d\n", argc);
+  if (argc == 1) {
+    printf("RX test\n");
+    tx_test = 0;
+  } else {
+    printf("TX test\n");
+    tx_test = 1;
+  }
+
 #ifdef DO_TX
+if (tx_test)
+{
   printf("Running TX example.\n");
 
-  if(argc < 2)
+  if(argc != 3 || (argc == 3 && strcmp(argv[1], "-t")))
   {
+    printf("%s [-t wave_file]\n", argv[0]);
     printf("Please provide a .wav file.\n");
     return -1;
   }
 
-  int sound_fp = open(argv[1], O_RDONLY);
+  int sound_fp = open(argv[2], O_RDONLY);
+  if (sound_fp < 0) {
+     printf("failed to open file: %s\n", argv[2]);
+     return -1;
+  }
 
   // Get max buffer size before the buffer is filled
   buffer_size = ioctl(i2s_fd, I2S_TX_BUFF_SPACE);
@@ -94,6 +112,7 @@ int main(int argc, char **argv)
   /* NOTE: Probably don't do this for large file sizes */
   wav_data = (int32_t *) malloc(wav_samples * sizeof(int32_t));
 
+#if 0
   /* Copy data from wav file into memory */
   for(i = 0; i < wav_samples; i++)
   {
@@ -101,19 +120,27 @@ int main(int argc, char **argv)
     pread(sound_fp, &temp_wav, bytes_per_sample, 44 + bytes_per_sample*i);
     *(wav_data + i) = (int32_t) temp_wav;
   }
+#else
+  wav_samples = 512;	// 256
+  for(i = 0; i < wav_samples; i++)
+  {
+    *(wav_data + i) = (int32_t) 0x5C5C;
+    i++;
+    *(wav_data + i) = (int32_t) 0x1234;
+  }
+#endif
 
   // Initialization of buffer
-  for(i = 0; i < buffer_size - 1; ++i)
-  {
-    if(ioctl(i2s_fd, I2S_TX_BUFF_SPACE) == 0)
-    {
-      printf("Buffer is full.\n");
-      printf("i = %d\n", i);
-      break;
-    }
-    write(i2s_fd, wav_data + wav_data_offset, nbytes);
-    wav_data_offset++;
-  }
+  buffer_size = ioctl(i2s_fd, I2S_TX_BUFF_SPACE);
+  unsigned words_to_write = (wav_samples >  buffer_size) ?  buffer_size : wav_samples;
+// printf("words_to_write = %d\n", words_to_write);
+  words_to_write = write(i2s_fd, wav_data, words_to_write * nbytes);
+  wav_data_offset += words_to_write / nbytes;
+// printf("words_to_write = %d\n", words_to_write);
+#if 1
+  for (i = 0; i < wav_data_offset; i++)
+     printf("data[%d]=%x\n", i, *(wav_data + i));
+#endif
 
   // Enable TX
   printf("Enabling TX...\n");
@@ -137,16 +164,21 @@ int main(int argc, char **argv)
     }
   }
 
+  // wait till buffer is all sent
+printf("sleeping after writing %d words ......\n", wav_data_offset);
+sleep(10);
   printf("Disabling TX...\n");
   ioctl(i2s_fd, I2S_SET_TXON, 0);
 
   free(wav_data);
   close(sound_fp);
-
+}
 #endif
 
 
 #ifdef DO_RX
+if (!tx_test)
+{
   unsigned byte_count = 0;
   FILE *rx_fp = fopen("rx.dat", "w+");
   if(rx_fp == NULL)
@@ -196,6 +228,7 @@ int main(int argc, char **argv)
 
   fclose(rx_fp);
 
+}
 #endif
 
   printf("Closing files.\n");

@@ -149,7 +149,7 @@ struct i2s_buffer {
 #define I2S_RXC_A_CH1POS(val)     (I2S_RXC_A_CH1POS_MASK & (val << I2S_RXC_A_CH1POS_POS))
 #define I2S_RXC_A_CH1WID_POS      (16)
 #define I2S_RXC_A_CH1WID_MASK     (0xFu << I2S_RXC_A_CH1WID_POS)
-#define I2S_RXC_A_CH1WID(val)     (I2S_TXC_A_CH1WID_MASK & (val << I2S_RXC_A_CH1WID_POS))
+#define I2S_RXC_A_CH1WID(val)     (I2S_RXC_A_CH1WID_MASK & (val << I2S_RXC_A_CH1WID_POS))
 #define I2S_RXC_A_CH2WEX          (0x1u << 15)
 #define I2S_RXC_A_CH2EN           (0x1u << 14)
 #define I2S_RXC_A_CH2POS_POS      (4)
